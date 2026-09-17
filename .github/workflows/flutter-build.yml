@@ -23,6 +23,9 @@ jobs:
         with:
           channel: 'stable'
 
+      - name: Generate Flutter project scaffolding
+        run: flutter create --org xyz.hesn --project-name rdmns_flutter .
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -46,6 +49,9 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+
+      - name: Generate Flutter project scaffolding
+        run: flutter create --org xyz.hesn --project-name rdmns_flutter .
 
       - name: Install dependencies
         run: flutter pub get
