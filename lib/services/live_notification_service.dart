@@ -30,7 +30,7 @@ class LiveNotificationService {
     }
     stopLiveStatusPolling();
 
-    _timer = Timer.periodic(const Duration(seconds: 8), (_) {
+    _timer = Timer.periodic(const Duration(seconds: 20), (_) {
       checkStatusFromApi();
     });
     checkStatusFromApi();
@@ -111,6 +111,14 @@ class LiveNotificationService {
       maxProgress: 100,
       progress: progress,
       ongoing: status < 5,
+      autoCancel: status >= 5,
+      onlyAlertOnce: false,
+      styleInformation: BigTextStyleInformation(
+        message,
+        contentTitle: title,
+        htmlFormatContentTitle: true,
+        htmlFormatBigText: true,
+      ),
     );
 
     const iosDetails = DarwinNotificationDetails();
