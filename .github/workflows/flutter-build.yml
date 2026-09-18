@@ -52,7 +52,7 @@ jobs:
       - name: Build Android APK (ARM64 Optimized)
         run: flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons --android-skip-build-dependency-validation
 
-      - name: Create GitHub Release
+      - name: Upload Artifact to GitHub Release
         uses: softprops/action-gh-release@v2
         if: success()
         with:
@@ -65,7 +65,7 @@ jobs:
           TELEGRAM_TOKEN: "8220698805:AAHHTHiEZ23axyTcOLyoPBWCl3MoUN9Qr88"
           TELEGRAM_CHAT_ID: "337041776"
         run: |
-          curl -F chat_id="$TELEGRAM_CHAT_ID" -F document=@"build/app/outputs/flutter-apk/app-release.apk" -F caption="💙 Rdmns Flutter Android App (v1.0.7)%0A%0ADirect Download: https://github.com/heshanga/Rdmns-Flutter/releases/download/v1.0.7/app-release.apk" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument"
+          curl -F chat_id="$TELEGRAM_CHAT_ID" -F document=@"build/app/outputs/flutter-apk/app-release.apk" -F caption="💙 Rdmns Flutter Android App (v1.0.7)%0A%0ADirect Link: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.0.7" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument"
 
   build-ios:
     name: Build iOS IPA
@@ -87,14 +87,16 @@ jobs:
       - name: Build iOS App Simulator (Unsigned)
         run: flutter build ios --simulator
 
-      - name: Create Payload and Zip IPA (High Compression)
+      - name: Clean Headers & Create Ultra-Compressed IPA
         run: |
           mkdir -p build/Payload
           cp -r build/ios/iphonesimulator/Runner.app build/Payload/
+          find build/Payload -name "*.h" -delete || true
+          find build/Payload -name "*.modulemap" -delete || true
           cd build
           zip -9 -r Rdmns_Flutter_v1.0.7.ipa Payload
 
-      - name: Create GitHub Release
+      - name: Upload Artifact to GitHub Release
         uses: softprops/action-gh-release@v2
         if: success()
         with:
@@ -102,9 +104,10 @@ jobs:
           name: "Rdmns Mobile App v1.0.7"
           files: build/Rdmns_Flutter_v1.0.7.ipa
 
-      - name: Send IPA to Telegram
+      - name: Send IPA & Direct Release Link to Telegram
         env:
           TELEGRAM_TOKEN: "8220698805:AAHHTHiEZ23axyTcOLyoPBWCl3MoUN9Qr88"
           TELEGRAM_CHAT_ID: "337041776"
         run: |
-          curl -F chat_id="$TELEGRAM_CHAT_ID" -F document=@"build/Rdmns_Flutter_v1.0.7.ipa" -F caption="🍏 Rdmns Flutter iOS App (v1.0.7)%0A%0ADirect Download: https://github.com/heshanga/Rdmns-Flutter/releases/download/v1.0.7/Rdmns_Flutter_v1.0.7.ipa" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument"
+          curl -F chat_id="$TELEGRAM_CHAT_ID" -F document=@"build/Rdmns_Flutter_v1.0.7.ipa" -F caption="🍏 Rdmns Flutter iOS App (v1.0.7)%0A%0ADirect Link: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.0.7" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" || \
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" -d chat_id="$TELEGRAM_CHAT_ID" -d text="🍏 Rdmns Flutter iOS App (v1.0.7) is ready! Download directly from GitHub Releases: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.0.7"
