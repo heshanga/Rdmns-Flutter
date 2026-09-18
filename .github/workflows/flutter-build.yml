@@ -26,7 +26,7 @@ jobs:
       - name: Generate Flutter project scaffolding
         run: flutter create --org xyz.hesn --project-name rdmns_flutter .
 
-      - name: Update minSdk to 24 and compileSdk to 36 for inappwebview
+      - name: Update minSdk, compileSdk, and desugaring for flutter_local_notifications
         run: |
           python3 -c "
           path = 'android/app/build.gradle'
@@ -36,6 +36,9 @@ jobs:
           content = content.replace('minSdk flutter.minSdkVersion', 'minSdk 24')
           content = content.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk 36')
           content = content.replace('compileSdk flutter.compileSdkVersion', 'compileSdk 36')
+          if 'coreLibraryDesugaringEnabled' not in content:
+              content = content.replace('compileOptions {', 'compileOptions {\n        coreLibraryDesugaringEnabled true')
+              content += '\ndependencies {\n    coreLibraryDesugaring \"com.android.tools:desugar_jdk_libs:2.0.4\"\n}\n'
           with open(path, 'w') as f:
               f.write(content)
           "
