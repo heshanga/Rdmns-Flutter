@@ -26,7 +26,7 @@ jobs:
       - name: Generate Flutter project scaffolding
         run: flutter create --org xyz.hesn --project-name rdmns_flutter .
 
-      - name: Update minSdk to 24 for inappwebview
+      - name: Update minSdk to 24 and compileSdk to 36 for inappwebview
         run: |
           python3 -c "
           path = 'android/app/build.gradle'
@@ -34,6 +34,8 @@ jobs:
               content = f.read()
           content = content.replace('minSdk = flutter.minSdkVersion', 'minSdk 24')
           content = content.replace('minSdk flutter.minSdkVersion', 'minSdk 24')
+          content = content.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk 36')
+          content = content.replace('compileSdk flutter.compileSdkVersion', 'compileSdk 36')
           with open(path, 'w') as f:
               f.write(content)
           "
