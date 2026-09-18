@@ -62,18 +62,24 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
   @override
   void initState() {
     super.initState();
-    _authenticateUser();
+    // Must call after first frame callback so Android FragmentActivity window has focus
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _authenticateUser();
+    });
   }
 
   Future<void> _authenticateUser() async {
+    if (_isAuthenticating) return;
+
     setState(() {
       _isAuthenticating = true;
-      _authStatusMessage = "Authenticating...";
+      _authStatusMessage = "Please verify your Fingerprint, Face ID, or PIN...";
     });
 
     try {
       final bool canAuthenticateWithBiometrics = await auth.canCheckBiometrics;
-      final bool canAuthenticate = canAuthenticateWithBiometrics || await auth.isDeviceSupported();
+      final bool isSupported = await auth.isDeviceSupported();
+      final bool canAuthenticate = canAuthenticateWithBiometrics || isSupported;
 
       if (!canAuthenticate) {
         // If device has no screen lock or biometrics setup, allow access directly
@@ -97,7 +103,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
           setState(() {
             _isAuthenticated = false;
             _isAuthenticating = false;
-            _authStatusMessage = "Authentication Required";
+            _authStatusMessage = "Authentication Cancelled or Failed";
           });
         }
       }
@@ -106,7 +112,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
         setState(() {
           _isAuthenticated = false;
           _isAuthenticating = false;
-          _authStatusMessage = "Error: ${e.message ?? 'Authentication failed'}";
+          _authStatusMessage = "Auth Error: ${e.message ?? 'Authentication failed'}";
         });
       }
     } catch (_) {
@@ -172,7 +178,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // If not authenticated, show secure unlock screen
+    // If not authenticated, show secure unlock screen with prominent Unlock button
     if (!_isAuthenticated) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -189,8 +195,8 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
-                    Icons.lock_outline,
-                    size: 72,
+                    Icons.fingerprint,
+                    size: 80,
                     color: Color(0xFF0D6EFD),
                   ),
                 ),
@@ -213,25 +219,22 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                   ),
                 ),
                 const SizedBox(height: 40),
-                if (!_isAuthenticating)
-                  ElevatedButton.icon(
-                    onPressed: _authenticateUser,
-                    icon: const Icon(Icons.fingerprint, size: 24),
-                    label: const Text(
-                      "Unlock App",
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ElevatedButton.icon(
+                  onPressed: _authenticateUser,
+                  icon: const Icon(Icons.lock_open, size: 24),
+                  label: Text(
+                    _isAuthenticating ? "Verifying..." : "Unlock App",
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0D6EFD),
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 54),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0D6EFD),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(double.infinity, 52),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  )
-                else
-                  const CircularProgressIndicator(color: Color(0xFF0D6EFD)),
+                  ),
+                ),
               ],
             ),
           ),
@@ -260,7 +263,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
               allowFileAccessFromFileURLs: true,
               allowUniversalAccessFromFileURLs: true,
               mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
-              userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.0.8",
+              userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.0.9",
             ),
             onWebViewCreated: (controller) {
               webViewController = controller;
