@@ -52,7 +52,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
 
   @override
   void initState() {
-    super.initState()
+    super.initState();
     LiveNotificationService().startLiveStatusPolling();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
