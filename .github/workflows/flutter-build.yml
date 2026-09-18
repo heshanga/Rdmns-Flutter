@@ -56,13 +56,13 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build iOS App
-        run: flutter build ios --release --no-codesign
+      - name: Build iOS App Simulator (Unsigned IPA)
+        run: flutter build ios --release --simulator
 
       - name: Create Payload and Zip IPA
         run: |
           mkdir -p build/Payload
-          cp -r build/ios/iphoneos/Runner.app build/Payload/
+          cp -r build/ios/iphonesimulator/Runner.app build/Payload/
           cd build
           zip -r Rdmns_Flutter_v1.0.7.ipa Payload
 
