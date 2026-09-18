@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace "xyz.hesn.rdmns_flutter"
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId "xyz.hesn.rdmns"
         minSdk 24
-        targetSdk 34
+        targetSdk 36
         versionCode 8
         versionName "1.0.7"
     }
