@@ -26,11 +26,23 @@ jobs:
       - name: Generate Flutter project scaffolding
         run: flutter create --org xyz.hesn --project-name rdmns_flutter .
 
+      - name: Update minSdk to 24 for inappwebview
+        run: |
+          python3 -c "
+          path = 'android/app/build.gradle'
+          with open(path, 'r') as f:
+              content = f.read()
+          content = content.replace('minSdk = flutter.minSdkVersion', 'minSdk 24')
+          content = content.replace('minSdk flutter.minSdkVersion', 'minSdk 24')
+          with open(path, 'w') as f:
+              f.write(content)
+          "
+
       - name: Install dependencies
         run: flutter pub get
 
       - name: Build Android APK
-        run: flutter build apk --release --no-tree-shake-icons
+        run: flutter build apk --release --no-tree-shake-icons --android-skip-build-dependency-validation
 
       - name: Send APK to Telegram
         env:
@@ -56,13 +68,13 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build iOS App Simulator (Unsigned IPA)
-        run: flutter build ios --release --simulator
+      - name: Build iOS App (Unsigned)
+        run: flutter build ios --no-codesign
 
       - name: Create Payload and Zip IPA
         run: |
           mkdir -p build/Payload
-          cp -r build/ios/iphonesimulator/Runner.app build/Payload/
+          cp -r build/ios/iphoneos/Runner.app build/Payload/
           cd build
           zip -r Rdmns_Flutter_v1.0.7.ipa Payload
 
