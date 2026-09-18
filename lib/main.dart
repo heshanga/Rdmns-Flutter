@@ -6,6 +6,7 @@ import 'package:local_auth/local_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'services/live_notification_service.dart';
 import 'services/auto_update_service.dart';
+import 'services/device_id_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -56,6 +57,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
   bool _isAuthenticated = false;
   bool _isAuthenticating = false;
   String _authStatusMessage = "Authenticating...";
+  String _deviceToken = "";
 
   final String targetUrl = "https://rdmns.hesn.xyz";
 
@@ -83,7 +85,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
 
       if (!canAuthenticate) {
         // If device has no screen lock or biometrics setup, allow access directly
-        _onAuthenticationSuccess();
+        await _onAuthenticationSuccess();
         return;
       }
 
@@ -97,7 +99,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       );
 
       if (authenticated) {
-        _onAuthenticationSuccess();
+        await _onAuthenticationSuccess();
       } else {
         if (mounted) {
           setState(() {
@@ -116,19 +118,22 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
         });
       }
     } catch (_) {
-      _onAuthenticationSuccess();
+      await _onAuthenticationSuccess();
     }
   }
 
-  void _onAuthenticationSuccess() {
+  Future<void> _onAuthenticationSuccess() async {
+    final String token = await DeviceIdService.getUniqueDeviceToken();
+
     if (!mounted) return;
     setState(() {
+      _deviceToken = token;
       _isAuthenticated = true;
       _isAuthenticating = false;
     });
 
     try {
-      LiveNotificationService().startLiveStatusPolling();
+      LiveNotificationService().startLiveStatusPolling(userId: token);
     } catch (_) {}
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -248,7 +253,12 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
         children: [
           // Fullscreen Edge-to-Edge InAppWebView
           InAppWebView(
-            initialUrlRequest: URLRequest(url: WebUri(targetUrl)),
+            initialUrlRequest: URLRequest(
+              url: WebUri(targetUrl),
+              headers: {
+                "X-Device-Token": _deviceToken,
+              },
+            ),
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               domStorageEnabled: true,
@@ -263,7 +273,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
               allowFileAccessFromFileURLs: true,
               allowUniversalAccessFromFileURLs: true,
               mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
-              userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.0.9",
+              userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.0 DeviceToken/$_deviceToken",
             ),
             onWebViewCreated: (controller) {
               webViewController = controller;
