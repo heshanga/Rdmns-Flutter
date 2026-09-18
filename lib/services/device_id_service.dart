@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
-import 'package:device_info_plus/device_info_plus';
-import 'package:shared_preferences/shared_preferences';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DeviceIdService {
   static const String _key = "rdmns_encrypted_device_token";
