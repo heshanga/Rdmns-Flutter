@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:ota_update/ota_update.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class AutoUpdateService {
   static const String updateJsonUrl = "https://rdmns.hesn.xyz/update.json";
@@ -58,17 +58,24 @@ class AutoUpdateService {
     );
   }
 
-  static void executeOtaUpdate(BuildContext context, String apkUrl) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Downloading update in background...")),
-    );
-
+  static Future<void> executeOtaUpdate(BuildContext context, String apkUrl) async {
+    final uri = Uri.parse(apkUrl);
     try {
-      OtaUpdate().execute(apkUrl, destinationFilename: 'rdmns-update.apk').listen((OtaEvent event) {});
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Could not open download link.")),
+          );
+        }
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Update error: $e")),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Update error: $e")),
+        );
+      }
     }
   }
 }
