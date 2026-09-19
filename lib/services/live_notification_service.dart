@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
+import 'package:permission_handler/permission_handler.dart';
 
 class LiveNotificationService {
   static final LiveNotificationService _instance = LiveNotificationService._internal();
@@ -22,6 +23,38 @@ class LiveNotificationService {
     );
     const initSettings = InitializationSettings(android: androidSettings, iOS: iosSettings);
     await _notificationsPlugin.initialize(initSettings);
+
+    await requestNotificationPermission();
+  }
+
+  Future<void> requestNotificationPermission() async {
+    try {
+      // 1. Android Notification Permission (Android 13+)
+      final androidImpl = _notificationsPlugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      if (androidImpl != null) {
+        await androidImpl.requestNotificationsPermission();
+      }
+
+      // 2. iOS Notification Permission
+      final iosImpl = _notificationsPlugin
+          .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+      if (iosImpl != null) {
+        await iosImpl.requestPermissions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+      }
+
+      // 3. Permission Handler Fallback & Battery Optimization Request
+      if (await Permission.notification.isDenied) {
+        await Permission.notification.request();
+      }
+      if (await Permission.ignoreBatteryOptimizations.isDenied) {
+        await Permission.ignoreBatteryOptimizations.request();
+      }
+    } catch (_) {}
   }
 
   void startLiveStatusPolling({String? userId}) {
@@ -105,14 +138,16 @@ class LiveNotificationService {
       'rdmns_flutter_live',
       'Live Order Tracking',
       channelDescription: 'Uber Eats style live status progress notifications',
-      importance: Importance.high,
-      priority: Priority.high,
+      importance: Importance.max,
+      priority: Priority.max,
       showProgress: true,
       maxProgress: 100,
       progress: progress,
       ongoing: status < 5,
       autoCancel: status >= 5,
       onlyAlertOnce: false,
+      visibility: NotificationVisibility.public,
+      channelShowBadge: true,
       styleInformation: BigTextStyleInformation(
         message,
         contentTitle: title,
