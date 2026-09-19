@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:share_plus/share_plus.dart';
 import 'services/live_notification_service.dart';
 import 'services/auto_update_service.dart';
 import 'services/device_id_service.dart';
@@ -181,8 +183,80 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
     }
   }
 
+  Future<bool> _handleShareOrExternalUrl(Uri uri) async {
+    final scheme = uri.scheme.toLowerCase();
+    final urlString = uri.toString();
+
+    final isShareScheme = ['whatsapp', 'tel', 'mailto', 'tg', 'maps', 'intent', 'sms', 'fb-messenger'].contains(scheme);
+    final isShareUrl = urlString.contains('facebook.com/sharer') ||
+        urlString.contains('twitter.com/intent') ||
+        urlString.contains('api.whatsapp.com/send') ||
+        urlString.contains('whatsapp://send') ||
+        urlString.contains('t.me/share') ||
+        urlString.contains('telegram.me/share') ||
+        urlString.contains('share=true') ||
+        urlString.contains('action=share');
+
+    if (isShareScheme || isShareUrl) {
+      if (await canLaunchUrl(uri)) {
+        try {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+          return true;
+        } catch (_) {}
+      }
+
+      String textToShare = uri.queryParameters['text'] ??
+          uri.queryParameters['url'] ??
+          uri.queryParameters['u'] ??
+          urlString;
+
+      await Share.share(textToShare);
+      return true;
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
+    // UserScript Polyfill for Web Share API navigator.share & window.AndroidNotification.share
+    final UserScript sharePolyfillScript = UserScript(
+      source: """
+        (function() {
+          if (!window.navigator.share) {
+            window.navigator.share = function(data) {
+              return new Promise(function(resolve, reject) {
+                try {
+                  var text = '';
+                  if (data) {
+                    if (data.title) text += data.title + '\\n';
+                    if (data.text) text += data.text + '\\n';
+                    if (data.url) text += data.url;
+                  }
+                  text = text.trim();
+                  if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+                    window.flutter_inappwebview.callHandler('NativeShare', text, data ? (data.url || '') : '', data ? (data.title || '') : '');
+                  } else if (window.AndroidNotification && window.AndroidNotification.share) {
+                    window.AndroidNotification.share(text);
+                  }
+                  resolve();
+                } catch(e) {
+                  reject(e);
+                }
+              });
+            };
+          }
+
+          if (!window.AndroidNotification) window.AndroidNotification = {};
+          window.AndroidNotification.share = function(text) {
+            if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+              window.flutter_inappwebview.callHandler('NativeShare', text, '', '');
+            }
+          };
+        })();
+      """,
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    );
+
     // If not authenticated, show secure unlock screen with prominent Unlock button
     if (!_isAuthenticated) {
       return Scaffold(
@@ -259,6 +333,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                 "X-Device-Token": _deviceToken,
               },
             ),
+            initialUserScripts: UnmodifiableListView([sharePolyfillScript]),
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               domStorageEnabled: true,
@@ -272,11 +347,30 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
               mediaPlaybackRequiresUserGesture: false,
               allowFileAccessFromFileURLs: true,
               allowUniversalAccessFromFileURLs: true,
+              javaScriptCanOpenWindowsAutomatically: true,
+              supportMultipleWindows: true,
               mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
-              userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.0 DeviceToken/$_deviceToken",
+              userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.3 DeviceToken/$_deviceToken",
             ),
             onWebViewCreated: (controller) {
               webViewController = controller;
+
+              // Register JavaScript Handler for Web Share API & Share buttons
+              controller.addJavaScriptHandler(
+                handlerName: 'NativeShare',
+                callback: (args) {
+                  if (args.isNotEmpty) {
+                    final text = args[0].toString();
+                    final url = args.length > 1 ? args[1].toString() : '';
+                    final subject = args.length > 2 ? args[2].toString() : '';
+
+                    final shareText = text.isNotEmpty ? text : url;
+                    if (shareText.isNotEmpty) {
+                      Share.share(shareText, subject: subject.isNotEmpty ? subject : null);
+                    }
+                  }
+                },
+              );
             },
             onProgressChanged: (controller, progress) {
               _onProgressChanged(progress);
@@ -287,15 +381,20 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
             onReceivedError: (controller, request, error) {
               _dismissOverlay();
             },
+            onCreateWindow: (controller, createWindowAction) async {
+              final uri = createWindowAction.request.url;
+              if (uri != null) {
+                await _handleShareOrExternalUrl(uri);
+                return true;
+              }
+              return false;
+            },
             shouldOverrideUrlLoading: (controller, navigationAction) async {
               final uri = navigationAction.request.url;
               if (uri != null) {
-                final scheme = uri.scheme.toLowerCase();
-                if (['whatsapp', 'tel', 'mailto', 'tg', 'maps', 'intent'].contains(scheme)) {
-                  if (await canLaunchUrl(uri)) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                    return NavigationActionPolicy.CANCEL;
-                  }
+                final handled = await _handleShareOrExternalUrl(uri);
+                if (handled) {
+                  return NavigationActionPolicy.CANCEL;
                 }
               }
               return NavigationActionPolicy.ALLOW;
