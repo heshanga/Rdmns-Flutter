@@ -291,6 +291,32 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
     );
 
+    // UserScript for input[type="time"] crash prevention & smooth focus handling
+    final UserScript timeInputCrashFixScript = UserScript(
+      source: """
+        (function() {
+          var fixInputs = function() {
+            var timeInputs = document.querySelectorAll('input[type="time"], input[type="date"], input[type="datetime-local"]');
+            timeInputs.forEach(function(el) {
+              if (!el.dataset.timeCrashFixed) {
+                el.dataset.timeCrashFixed = "true";
+                el.addEventListener('focus', function(e) { e.stopPropagation(); }, { passive: true });
+                el.addEventListener('change', function(e) { e.stopPropagation(); }, { passive: true });
+              }
+            });
+          };
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', fixInputs);
+          } else {
+            fixInputs();
+          }
+          var observer = new MutationObserver(fixInputs);
+          observer.observe(document.documentElement, { childList: true, subtree: true });
+        })();
+      """,
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    );
+
     // If not authenticated, show secure unlock screen with prominent Unlock button
     if (!_isAuthenticated) {
       return Scaffold(
@@ -367,7 +393,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                 "X-Device-Token": _deviceToken,
               },
             ),
-            initialUserScripts: UnmodifiableListView([sharePolyfillScript, gpuAcceleratePolyfillScript]),
+            initialUserScripts: UnmodifiableListView([sharePolyfillScript, gpuAcceleratePolyfillScript, timeInputCrashFixScript]),
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               domStorageEnabled: true,
@@ -395,7 +421,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
               useHybridComposition: true,
               allowsBackForwardNavigationGestures: true,
               allowsInlineMediaPlayback: true,
-              userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.5 DeviceToken/$_deviceToken",
+              userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.6 DeviceToken/$_deviceToken",
             ),
             onWebViewCreated: (controller) {
               webViewController = controller;
@@ -429,7 +455,11 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
             onCreateWindow: (controller, createWindowAction) async {
               final uri = createWindowAction.request.url;
               if (uri != null) {
-                await _handleShareOrExternalUrl(uri);
+                final handled = await _handleShareOrExternalUrl(uri);
+                if (!handled) {
+                  // Open new tab/window request directly inside the SAME WebView window!
+                  await controller.loadUrl(urlRequest: createWindowAction.request);
+                }
                 return true;
               }
               return false;
@@ -446,7 +476,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
             },
           ),
 
-          // Sleek Animated Loading Overlay with Percentage Counter
+          // Ultra-Modern Clear & Professional Loading Overlay
           if (_showOverlay)
             IgnorePointer(
               ignoring: _overlayOpacity == 0.0,
@@ -454,53 +484,123 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                 opacity: _overlayOpacity,
                 duration: const Duration(milliseconds: 400),
                 child: Container(
-                  color: Colors.white,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Color(0xFF0F172A), // Dark slate blue header accent
+                        Color(0xFF1E293B), // Deep sleek background
+                      ],
+                    ),
+                  ),
                   width: double.infinity,
                   height: double.infinity,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.language,
-                        size: 80,
-                        color: Color(0xFF0D6EFD),
+                  child: Center(
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 28),
+                      padding: const EdgeInsets.all(32),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.15),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 30,
+                            spreadRadius: 5,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 32),
-
-                      // Circular Progress & Percentage Display
-                      Stack(
-                        alignment: Alignment.center,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          SizedBox(
-                            width: 130,
-                            height: 130,
-                            child: CircularProgressIndicator(
-                              value: _progress > 0 ? _progress : null,
-                              strokeWidth: 8,
-                              backgroundColor: Colors.grey.shade200,
-                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0D6EFD)),
+                          // Glowing Pulsing App Icon Ring
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                colors: [
+                                  const Color(0xFF0D6EFD).withOpacity(0.3),
+                                  const Color(0xFF0D6EFD).withOpacity(0.05),
+                                ],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF0D6EFD).withOpacity(0.4),
+                                  blurRadius: 25,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.language,
+                              size: 64,
+                              color: Color(0xFF38BDF8),
                             ),
                           ),
-                          Text(
-                            "${(_progress * 100).toInt()}%",
-                            style: const TextStyle(
-                              fontSize: 26,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF0D6EFD),
+                          const SizedBox(height: 32),
+
+                          // Circular Progress & Percentage Counter Display
+                          Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              SizedBox(
+                                width: 110,
+                                height: 110,
+                                child: CircularProgressIndicator(
+                                  value: _progress > 0 ? _progress : null,
+                                  strokeWidth: 6,
+                                  backgroundColor: Colors.white10,
+                                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF38BDF8)),
+                                ),
+                              ),
+                              Text(
+                                "${(_progress * 100).toInt()}%",
+                                style: const TextStyle(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 28),
+
+                          // Sleek Progress Line
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: SizedBox(
+                              width: 180,
+                              height: 4,
+                              child: LinearProgressIndicator(
+                                value: _progress > 0 ? _progress : null,
+                                backgroundColor: Colors.white10,
+                                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0D6EFD)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+
+                          // Professional Loading Caption
+                          const Text(
+                            "Loading Rdmns App...",
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.5,
+                              color: Color(0xFF94A3B8),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 24),
-                      const Text(
-                        "Loading Rdmns...",
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
