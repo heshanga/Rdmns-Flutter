@@ -66,8 +66,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: v1.1.5
-          name: "Rdmns Mobile App v1.1.5"
+          tag_name: v1.1.6
+          name: "Rdmns Mobile App v1.1.6"
           files: build/app/outputs/flutter-apk/app-release.apk
 
       - name: Send APK to Telegram
@@ -75,7 +75,7 @@ jobs:
           TELEGRAM_TOKEN: "8220698805:AAHHTHiEZ23axyTcOLyoPBWCl3MoUN9Qr88"
           TELEGRAM_CHAT_ID: "337041776"
         run: |
-          curl -F chat_id="$TELEGRAM_CHAT_ID" -F document=@"build/app/outputs/flutter-apk/app-release.apk" -F caption="💙 Rdmns Flutter Android App (Ultra-Smooth GPU Accelerated WebView v1.1.5)%0A%0ADirect Link: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.1.5" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument"
+          curl -F chat_id="$TELEGRAM_CHAT_ID" -F document=@"build/app/outputs/flutter-apk/app-release.apk" -F caption="💙 Rdmns Flutter Android App (Same Window Tabs, Time Crash Fix, Modern UI v1.1.6)%0A%0ADirect Link: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.1.6" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument"
 
   build-ios:
     name: Build iOS IPA
@@ -116,20 +116,20 @@ jobs:
           find build/Payload -name "*.h" -delete || true
           find build/Payload -name "*.modulemap" -delete || true
           cd build
-          zip -9 -r Rdmns_Flutter_v1.1.5.ipa Payload
+          zip -9 -r Rdmns_Flutter_v1.1.6.ipa Payload
 
       - name: Upload Artifact to GitHub Release
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: v1.1.5
-          name: "Rdmns Mobile App v1.1.5"
-          files: build/Rdmns_Flutter_v1.1.5.ipa
+          tag_name: v1.1.6
+          name: "Rdmns Mobile App v1.1.6"
+          files: build/Rdmns_Flutter_v1.1.6.ipa
 
       - name: Send IPA & Direct Release Link to Telegram
         env:
           TELEGRAM_TOKEN: "8220698805:AAHHTHiEZ23axyTcOLyoPBWCl3MoUN9Qr88"
           TELEGRAM_CHAT_ID: "337041776"
         run: |
-          curl -F chat_id="$TELEGRAM_CHAT_ID" -F document=@"build/Rdmns_Flutter_v1.1.5.ipa" -F caption="🍏 Rdmns Flutter iOS App (Ultra-Smooth GPU Accelerated WebView v1.1.5)%0A%0ADirect Link: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.1.5" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" || \
-          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" -d chat_id="$TELEGRAM_CHAT_ID" -d text="🍏 Rdmns Flutter iOS App (v1.1.5) is ready! Download directly from GitHub Releases: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.1.5"
+          curl -F chat_id="$TELEGRAM_CHAT_ID" -F document=@"build/Rdmns_Flutter_v1.1.6.ipa" -F caption="🍏 Rdmns Flutter iOS App (Same Window Tabs, Time Crash Fix, Modern UI v1.1.6)%0A%0ADirect Link: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.1.6" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" || \
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" -d chat_id="$TELEGRAM_CHAT_ID" -d text="🍏 Rdmns Flutter iOS App (v1.1.6) is ready! Download directly from GitHub Releases: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.1.6"
