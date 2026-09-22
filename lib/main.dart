@@ -257,6 +257,40 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
     );
 
+    // UserScript for Hardware Acceleration & Smooth CSS Transitions for Modals/Elements
+    final UserScript gpuAcceleratePolyfillScript = UserScript(
+      source: """
+        (function() {
+          var injectSmoothCSS = function() {
+            if (document.head && !document.getElementById('smooth-gpu-css')) {
+              var style = document.createElement('style');
+              style.id = 'smooth-gpu-css';
+              style.type = 'text/css';
+              style.innerHTML = `
+                * {
+                  -webkit-tap-highlight-color: transparent !important;
+                }
+                .modal, .dialog, .popup, .dropdown, .drawer, .sidebar, .menu, [role="dialog"], [role="menu"] {
+                  -webkit-transform: translateZ(0) !important;
+                  transform: translateZ(0) !important;
+                  will-change: transform, opacity !important;
+                  -webkit-backface-visibility: hidden !important;
+                  backface-visibility: hidden !important;
+                }
+              `;
+              document.head.appendChild(style);
+            }
+          };
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', injectSmoothCSS);
+          } else {
+            injectSmoothCSS();
+          }
+        })();
+      """,
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    );
+
     // If not authenticated, show secure unlock screen with prominent Unlock button
     if (!_isAuthenticated) {
       return Scaffold(
@@ -333,7 +367,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                 "X-Device-Token": _deviceToken,
               },
             ),
-            initialUserScripts: UnmodifiableListView([sharePolyfillScript]),
+            initialUserScripts: UnmodifiableListView([sharePolyfillScript, gpuAcceleratePolyfillScript]),
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               domStorageEnabled: true,
@@ -350,7 +384,18 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
               javaScriptCanOpenWindowsAutomatically: true,
               supportMultipleWindows: true,
               mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
-              userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.3 DeviceToken/$_deviceToken",
+              hardwareAcceleration: true,
+              offscreenPreRaster: true,
+              cacheEnabled: true,
+              clearCache: false,
+              verticalScrollBarEnabled: false,
+              horizontalScrollBarEnabled: false,
+              preferredContentMode: UserPreferredContentMode.MOBILE,
+              disallowOverScroll: true,
+              useHybridComposition: true,
+              allowsBackForwardNavigationGestures: true,
+              allowsInlineMediaPlayback: true,
+              userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.5 DeviceToken/$_deviceToken",
             ),
             onWebViewCreated: (controller) {
               webViewController = controller;
