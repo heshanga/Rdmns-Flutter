@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 class AutoUpdateService {
   static const String updateJsonUrl = "https://rdmns.hesn.xyz/update.json";
-  static const int currentVersionCode = 14; // v1.1.4
+  static const int currentVersionCode = 15; // v1.1.5
 
   static Future<void> checkForUpdates(BuildContext context) async {
     try {
