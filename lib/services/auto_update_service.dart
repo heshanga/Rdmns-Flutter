@@ -25,7 +25,7 @@ class AutoUpdateService {
 
         // Dynamically fetch installed app version code
         final packageInfo = await PackageInfo.fromPlatform();
-        final currentBuildNumber = int.tryParse(packageInfo.buildNumber) ?? 19;
+        final currentBuildNumber = int.tryParse(packageInfo.buildNumber) ?? 20;
 
         // Check if user previously dismissed this version
         final prefs = await SharedPreferences.getInstance();
