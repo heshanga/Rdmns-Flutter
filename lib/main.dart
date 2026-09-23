@@ -455,7 +455,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                 useHybridComposition: true,
                 allowsBackForwardNavigationGestures: true,
                 allowsInlineMediaPlayback: true,
-                userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.8 DeviceToken/$_deviceToken",
+                userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.9 DeviceToken/$_deviceToken",
               ),
             onWebViewCreated: (controller) {
               webViewController = controller;
