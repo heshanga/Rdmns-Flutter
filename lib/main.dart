@@ -292,15 +292,18 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
               style.id = 'smooth-gpu-css';
               style.type = 'text/css';
               style.innerHTML = `
+                html, body {
+                  -webkit-overflow-scrolling: touch !important;
+                  scroll-behavior: smooth !important;
+                }
                 * {
                   -webkit-tap-highlight-color: transparent !important;
                 }
-                .modal, .dialog, .popup, .dropdown, .drawer, .sidebar, .menu, [role="dialog"], [role="menu"] {
-                  -webkit-transform: translateZ(0) !important;
-                  transform: translateZ(0) !important;
-                  will-change: transform, opacity !important;
+                .modal, .dialog, .popup, .dropdown, .drawer, .sidebar, .menu, [role="dialog"], [role="menu"], div, section, article {
                   -webkit-backface-visibility: hidden !important;
                   backface-visibility: hidden !important;
+                  -webkit-transform-style: preserve-3d !important;
+                  transform-style: preserve-3d !important;
                 }
               `;
               document.head.appendChild(style);
@@ -452,10 +455,11 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                 horizontalScrollBarEnabled: false,
                 preferredContentMode: UserPreferredContentMode.MOBILE,
                 disallowOverScroll: true,
-                useHybridComposition: true,
+                useHybridComposition: false,
+                renderingPriority: RenderingPriority.HIGH,
                 allowsBackForwardNavigationGestures: true,
                 allowsInlineMediaPlayback: true,
-                userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.9 DeviceToken/$_deviceToken",
+                userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.0 DeviceToken/$_deviceToken",
               ),
             onWebViewCreated: (controller) {
               webViewController = controller;
