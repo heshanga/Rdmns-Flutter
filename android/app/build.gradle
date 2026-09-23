@@ -12,8 +12,8 @@ android {
         applicationId "xyz.hesn.rdmns"
         minSdk 24
         targetSdk 36
-        versionCode 8
-        versionName "1.0.7"
+        versionCode 20
+        versionName "1.2.0"
     }
 
     compileOptions {
