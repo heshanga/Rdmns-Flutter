@@ -60,8 +60,33 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
   bool _isAuthenticating = false;
   String _authStatusMessage = "Authenticating...";
   String _deviceToken = "";
+  DateTime? _lastBackPressTime;
 
   final String targetUrl = "https://rdmns.hesn.xyz";
+
+  Future<bool> _handleBackPress() async {
+    if (webViewController != null && await webViewController!.canGoBack()) {
+      await webViewController!.goBack();
+      return false;
+    }
+
+    final now = DateTime.now();
+    if (_lastBackPressTime == null || now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+      _lastBackPressTime = now;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Press back again to exit Rdmns app"),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+
+    return true;
+  }
 
   @override
   void initState() {
@@ -381,48 +406,57 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Stack(
-        children: [
-          // Fullscreen Edge-to-Edge InAppWebView
-          InAppWebView(
-            initialUrlRequest: URLRequest(
-              url: WebUri(targetUrl),
-              headers: {
-                "X-Device-Token": _deviceToken,
-              },
-            ),
-            initialUserScripts: UnmodifiableListView([sharePolyfillScript, gpuAcceleratePolyfillScript, timeInputCrashFixScript]),
-            initialSettings: InAppWebViewSettings(
-              javaScriptEnabled: true,
-              domStorageEnabled: true,
-              databaseEnabled: true,
-              useWideViewPort: true,
-              loadWithOverviewMode: true,
-              supportZoom: true,
-              builtInZoomControls: true,
-              displayZoomControls: false,
-              useShouldOverrideUrlLoading: true,
-              mediaPlaybackRequiresUserGesture: false,
-              allowFileAccessFromFileURLs: true,
-              allowUniversalAccessFromFileURLs: true,
-              javaScriptCanOpenWindowsAutomatically: true,
-              supportMultipleWindows: true,
-              mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
-              hardwareAcceleration: true,
-              offscreenPreRaster: true,
-              cacheEnabled: true,
-              clearCache: false,
-              verticalScrollBarEnabled: false,
-              horizontalScrollBarEnabled: false,
-              preferredContentMode: UserPreferredContentMode.MOBILE,
-              disallowOverScroll: true,
-              useHybridComposition: true,
-              allowsBackForwardNavigationGestures: true,
-              allowsInlineMediaPlayback: true,
-              userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.7 DeviceToken/$_deviceToken",
-            ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldPop = await _handleBackPress();
+        if (shouldPop && context.mounted) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: Stack(
+          children: [
+            // Fullscreen Edge-to-Edge InAppWebView
+            InAppWebView(
+              initialUrlRequest: URLRequest(
+                url: WebUri(targetUrl),
+                headers: {
+                  "X-Device-Token": _deviceToken,
+                },
+              ),
+              initialUserScripts: UnmodifiableListView([sharePolyfillScript, gpuAcceleratePolyfillScript, timeInputCrashFixScript]),
+              initialSettings: InAppWebViewSettings(
+                javaScriptEnabled: true,
+                domStorageEnabled: true,
+                databaseEnabled: true,
+                useWideViewPort: true,
+                loadWithOverviewMode: true,
+                supportZoom: true,
+                builtInZoomControls: true,
+                displayZoomControls: false,
+                useShouldOverrideUrlLoading: true,
+                mediaPlaybackRequiresUserGesture: false,
+                allowFileAccessFromFileURLs: true,
+                allowUniversalAccessFromFileURLs: true,
+                javaScriptCanOpenWindowsAutomatically: true,
+                supportMultipleWindows: true,
+                mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+                hardwareAcceleration: true,
+                offscreenPreRaster: true,
+                cacheEnabled: true,
+                clearCache: false,
+                verticalScrollBarEnabled: false,
+                horizontalScrollBarEnabled: false,
+                preferredContentMode: UserPreferredContentMode.MOBILE,
+                disallowOverScroll: true,
+                useHybridComposition: true,
+                allowsBackForwardNavigationGestures: true,
+                allowsInlineMediaPlayback: true,
+                userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.1.8 DeviceToken/$_deviceToken",
+              ),
             onWebViewCreated: (controller) {
               webViewController = controller;
 
@@ -607,6 +641,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
             ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }
