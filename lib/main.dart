@@ -463,7 +463,6 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                 preferredContentMode: UserPreferredContentMode.MOBILE,
                 disallowOverScroll: true,
                 useHybridComposition: false,
-                renderingPriority: RenderingPriority.HIGH,
                 allowsBackForwardNavigationGestures: true,
                 allowsInlineMediaPlayback: true,
                 userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.1 DeviceToken/$_deviceToken",
