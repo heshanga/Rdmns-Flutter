@@ -23,7 +23,7 @@
         android:networkSecurityConfig="@xml/network_security_config">
         
         <activity
-            android:name="xyz.hesn.rdmns_flutter.MainActivity"
+            android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:theme="@style/LaunchTheme"
@@ -40,9 +40,5 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        
-        <meta-data
-            android:name="flutterEmbedding"
-            android:value="2" />
     </application>
 </manifest>
