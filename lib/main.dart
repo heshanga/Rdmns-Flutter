@@ -9,6 +9,8 @@ import 'package:share_plus/share_plus.dart';
 import 'services/live_notification_service.dart';
 import 'services/auto_update_service.dart';
 import 'services/device_id_service.dart';
+import 'services/app_config_service.dart';
+import 'services/dynamic_token_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,7 +64,8 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
   String _deviceToken = "";
   DateTime? _lastBackPressTime;
 
-  final String targetUrl = "https://rdmns.hesn.xyz";
+  String targetUrl = AppConfigService.defaultTargetUrl;
+  String secretKey = AppConfigService.defaultSecretKey;
 
   Future<bool> _handleBackPress() async {
     if (webViewController != null && await webViewController!.canGoBack()) {
@@ -151,10 +154,13 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
 
   Future<void> _onAuthenticationSuccess() async {
     final String token = await DeviceIdService.getUniqueDeviceToken();
+    final config = await AppConfigService.fetchRemoteConfig();
 
     if (!mounted) return;
     setState(() {
       _deviceToken = token;
+      targetUrl = config.targetUrl;
+      secretKey = config.secretKey;
       _isAuthenticated = true;
       _isAuthenticating = false;
     });
@@ -409,6 +415,9 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       );
     }
 
+    final String secureUrl = DynamicTokenService.buildSecureUrl(targetUrl, _deviceToken, secretKey: secretKey);
+    final Map<String, String> secureHeaders = DynamicTokenService.buildSecureHeaders(_deviceToken, secretKey: secretKey);
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -425,10 +434,8 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
             // Fullscreen Edge-to-Edge InAppWebView
             InAppWebView(
               initialUrlRequest: URLRequest(
-                url: WebUri(targetUrl),
-                headers: {
-                  "X-Device-Token": _deviceToken,
-                },
+                url: WebUri(secureUrl),
+                headers: secureHeaders,
               ),
               initialUserScripts: UnmodifiableListView([sharePolyfillScript, gpuAcceleratePolyfillScript, timeInputCrashFixScript]),
               initialSettings: InAppWebViewSettings(
@@ -459,7 +466,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                 renderingPriority: RenderingPriority.HIGH,
                 allowsBackForwardNavigationGestures: true,
                 allowsInlineMediaPlayback: true,
-                userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.0 DeviceToken/$_deviceToken",
+                userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.1 DeviceToken/$_deviceToken",
               ),
             onWebViewCreated: (controller) {
               webViewController = controller;
