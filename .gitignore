@@ -7,3 +7,7 @@ android/local.properties
 android/.gradle/
 *.iml
 .idea/
+# signing (only the encrypted keystore is committed)
+*.jks
+*.keystore
+android/key.properties

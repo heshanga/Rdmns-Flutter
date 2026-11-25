@@ -48,6 +48,17 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Decrypt release signing key
+        env:
+          ANDROID_SIGNING_PASSWORD: ${{ secrets.ANDROID_SIGNING_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_SIGNING_PASSWORD" ]; then
+            echo "::error::Add the ANDROID_SIGNING_PASSWORD repository secret (see SIGNING.md). Without it the APK would be signed with a random key and could not update the installed app."
+            exit 1
+          fi
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in android/rdmns-release.jks.enc -out android/app/rdmns-release.jks -pass env:ANDROID_SIGNING_PASSWORD
+          printf 'storeFile=rdmns-release.jks\nstorePassword=%s\nkeyAlias=rdmns\nkeyPassword=%s\n' "$ANDROID_SIGNING_PASSWORD" "$ANDROID_SIGNING_PASSWORD" > android/key.properties
+
       - name: Build Android APK (ARM64 Optimized)
         run: flutter build apk --release --build-name=1.2.1 --build-number=21 --target-platform android-arm64 --no-tree-shake-icons --android-skip-build-dependency-validation
 
