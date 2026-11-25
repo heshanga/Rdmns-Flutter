@@ -1,7 +1,7 @@
 {
-  "versionCode": 23,
-  "versionName": "1.2.3",
-  "apkUrl": "https://github.com/heshanga/Rdmns-Flutter/releases/download/v1.2.3/app-release.apk",
-  "releaseNotes": "Rdmns v1.2.3: Much smoother scrolling on Home, Radar and Timetable.",
+  "versionCode": 24,
+  "versionName": "1.2.4",
+  "apkUrl": "https://github.com/heshanga/Rdmns-Flutter/releases/download/v1.2.4/app-release.apk",
+  "releaseNotes": "Rdmns v1.2.4: Screen-reading apps can no longer read the app. TalkBack still works.",
   "forceUpdate": true
 }
