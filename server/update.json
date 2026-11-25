@@ -1,7 +1,7 @@
 {
-  "versionCode": 21,
-  "versionName": "1.2.1",
-  "apkUrl": "https://github.com/heshanga/Rdmns-Flutter/releases/download/v1.2.1/app-release.apk",
-  "releaseNotes": "Rdmns App v1.2.1: Dynamic URL configuration, 60-second time-synchronized security token system, and 120Hz smooth performance.",
+  "versionCode": 22,
+  "versionName": "1.2.2",
+  "apkUrl": "https://github.com/heshanga/Rdmns-Flutter/releases/download/v1.2.2/app-release.apk",
+  "releaseNotes": "Rdmns v1.2.2: Home, Map, Radar and Timetable tabs, auto-hiding tab bar, and an alert when your internet connection drops.",
   "forceUpdate": true
 }

@@ -601,7 +601,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
         allowsBackForwardNavigationGestures: true,
         allowsInlineMediaPlayback: true,
         geolocationEnabled: true,
-        userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.1 DeviceToken/$_deviceToken",
+        userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.2 DeviceToken/$_deviceToken",
       ),
       onWebViewCreated: (controller) {
         _controllers[i] = controller;
