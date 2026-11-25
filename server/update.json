@@ -1,0 +1,7 @@
+{
+  "versionCode": 21,
+  "versionName": "1.2.1",
+  "apkUrl": "https://github.com/heshanga/Rdmns-Flutter/releases/download/v1.2.1/app-release.apk",
+  "releaseNotes": "Rdmns App v1.2.1: Dynamic URL configuration, 60-second time-synchronized security token system, and 120Hz smooth performance.",
+  "forceUpdate": true
+}

@@ -16,7 +16,6 @@ class DeviceIdService {
         return savedToken;
       }
 
-      // Generate unique device hardware info + installation timestamp
       final deviceInfo = DeviceInfoPlugin();
       String rawDeviceData = "";
 
@@ -33,7 +32,6 @@ class DeviceIdService {
       final String installTimestamp = DateTime.now().millisecondsSinceEpoch.toString();
       final String rawCombined = "RDMNS_SECRET_SALT_${rawDeviceData}_$installTimestamp";
 
-      // Encrypt / Hash combining SHA-256
       final bytes = utf8.encode(rawCombined);
       final digest = sha256.convert(bytes);
       final String encryptedToken = "RD_${digest.toString().substring(0, 16).toUpperCase()}";

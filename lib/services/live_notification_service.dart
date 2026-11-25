@@ -29,25 +29,18 @@ class LiveNotificationService {
 
   Future<void> requestNotificationPermission() async {
     try {
-      // 1. Android Notification Permission (Android 13+)
       final androidImpl = _notificationsPlugin
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
       if (androidImpl != null) {
         await androidImpl.requestNotificationsPermission();
       }
 
-      // 2. iOS Notification Permission
       final iosImpl = _notificationsPlugin
           .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
       if (iosImpl != null) {
-        await iosImpl.requestPermissions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
+        await iosImpl.requestPermissions(alert: true, badge: true, sound: true);
       }
 
-      // 3. Permission Handler Fallback & Battery Optimization Request
       if (await Permission.notification.isDenied) {
         await Permission.notification.request();
       }

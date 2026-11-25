@@ -60,9 +60,10 @@ jobs:
 
       - name: Send APK to Telegram
         env:
-          TELEGRAM_TOKEN: "8220698805:AAHHTHiEZ23axyTcOLyoPBWCl3MoUN9Qr88"
-          TELEGRAM_CHAT_ID: "337041776"
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          if [ -z "$TELEGRAM_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then echo "Telegram secrets not set - skipping"; exit 0; fi
           curl -F chat_id="$TELEGRAM_CHAT_ID" -F document=@"build/app/outputs/flutter-apk/app-release.apk" -F caption="💙 Rdmns Flutter Android App (v1.2.1 Dynamic URL & 60s Token Sync)%0A%0ADirect Link: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.2.1" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument"
 
   build-ios:
@@ -116,8 +117,9 @@ jobs:
 
       - name: Send IPA & Direct Release Link to Telegram
         env:
-          TELEGRAM_TOKEN: "8220698805:AAHHTHiEZ23axyTcOLyoPBWCl3MoUN9Qr88"
-          TELEGRAM_CHAT_ID: "337041776"
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          if [ -z "$TELEGRAM_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then echo "Telegram secrets not set - skipping"; exit 0; fi
           curl -F chat_id="$TELEGRAM_CHAT_ID" -F document=@"build/Rdmns_Flutter_v1.2.1.ipa" -F caption="🍏 Rdmns Flutter iOS App (v1.2.1)%0A%0ADirect Link: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.2.1" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" || \
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" -d chat_id="$TELEGRAM_CHAT_ID" -d text="🍏 Rdmns Flutter iOS App (v1.2.1) is ready! Download directly from GitHub Releases: https://github.com/heshanga/Rdmns-Flutter/releases/tag/v1.2.1"

@@ -10,7 +10,6 @@ class AutoUpdateService {
   static bool _updateDialogShownInSession = false;
 
   static Future<void> checkForUpdates(BuildContext context) async {
-    // Prevent duplicate popups during the same session
     if (_updateDialogShownInSession) return;
 
     try {
@@ -23,15 +22,12 @@ class AutoUpdateService {
         final releaseNotes = data['releaseNotes'] ?? 'New update available!';
         final forceUpdate = data['forceUpdate'] ?? false;
 
-        // Dynamically fetch installed app version code
         final packageInfo = await PackageInfo.fromPlatform();
         final currentBuildNumber = int.tryParse(packageInfo.buildNumber) ?? 21;
 
-        // Check if user previously dismissed this version
         final prefs = await SharedPreferences.getInstance();
         final dismissedCode = prefs.getInt('dismissed_update_version_code') ?? 0;
 
-        // Strictly check if server version code is GREATER than installed build number
         if (serverVersionCode > currentBuildNumber &&
             serverVersionCode > dismissedCode &&
             apkUrl.isNotEmpty) {

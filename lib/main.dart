@@ -94,7 +94,6 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
   @override
   void initState() {
     super.initState();
-    // Must call after first frame callback so Android FragmentActivity window has focus
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _authenticateUser();
     });
@@ -114,7 +113,6 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       final bool canAuthenticate = canAuthenticateWithBiometrics || isSupported;
 
       if (!canAuthenticate) {
-        // If device has no screen lock or biometrics setup, allow access directly
         await _onAuthenticationSuccess();
         return;
       }
@@ -122,7 +120,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       final bool authenticated = await auth.authenticate(
         localizedReason: 'Please authenticate using Fingerprint, Face ID, or Screen Lock to open Rdmns app',
         options: const AuthenticationOptions(
-          biometricOnly: false, // Allows Fingerprint, Face ID, PIN, Pattern, or Passcode
+          biometricOnly: false,
           stickyAuth: true,
           useErrorDialogs: true,
         ),
@@ -175,7 +173,6 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       } catch (_) {}
     });
 
-    // 3.5s Safety Fallback Timer to guarantee overlay dismissal
     _fallbackTimer = Timer(const Duration(milliseconds: 3500), () {
       _dismissOverlay();
     });
@@ -249,7 +246,6 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // UserScript Polyfill for Web Share API navigator.share & window.AndroidNotification.share
     final UserScript sharePolyfillScript = UserScript(
       source: """
         (function() {
@@ -288,7 +284,6 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
     );
 
-    // UserScript for Hardware Acceleration & Smooth CSS Transitions for Modals/Elements
     final UserScript gpuAcceleratePolyfillScript = UserScript(
       source: """
         (function() {
@@ -325,7 +320,6 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
     );
 
-    // UserScript for input[type="time"] crash prevention & smooth focus handling
     final UserScript timeInputCrashFixScript = UserScript(
       source: """
         (function() {
@@ -351,7 +345,6 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
     );
 
-    // If not authenticated, show secure unlock screen with prominent Unlock button
     if (!_isAuthenticated) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -431,7 +424,6 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
         backgroundColor: Colors.white,
         body: Stack(
           children: [
-            // Fullscreen Edge-to-Edge InAppWebView
             InAppWebView(
               initialUrlRequest: URLRequest(
                 url: WebUri(secureUrl),
@@ -467,191 +459,171 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                 allowsInlineMediaPlayback: true,
                 userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.1 DeviceToken/$_deviceToken",
               ),
-            onWebViewCreated: (controller) {
-              webViewController = controller;
+              onWebViewCreated: (controller) {
+                webViewController = controller;
 
-              // Register JavaScript Handler for Web Share API & Share buttons
-              controller.addJavaScriptHandler(
-                handlerName: 'NativeShare',
-                callback: (args) {
-                  if (args.isNotEmpty) {
-                    final text = args[0].toString();
-                    final url = args.length > 1 ? args[1].toString() : '';
-                    final subject = args.length > 2 ? args[2].toString() : '';
+                controller.addJavaScriptHandler(
+                  handlerName: 'NativeShare',
+                  callback: (args) {
+                    if (args.isNotEmpty) {
+                      final text = args[0].toString();
+                      final url = args.length > 1 ? args[1].toString() : '';
+                      final subject = args.length > 2 ? args[2].toString() : '';
 
-                    final shareText = text.isNotEmpty ? text : url;
-                    if (shareText.isNotEmpty) {
-                      Share.share(shareText, subject: subject.isNotEmpty ? subject : null);
+                      final shareText = text.isNotEmpty ? text : url;
+                      if (shareText.isNotEmpty) {
+                        Share.share(shareText, subject: subject.isNotEmpty ? subject : null);
+                      }
                     }
+                  },
+                );
+              },
+              onProgressChanged: (controller, progress) {
+                _onProgressChanged(progress);
+              },
+              onLoadStop: (controller, url) {
+                _dismissOverlay();
+              },
+              onReceivedError: (controller, request, error) {
+                _dismissOverlay();
+              },
+              onCreateWindow: (controller, createWindowAction) async {
+                final uri = createWindowAction.request.url;
+                if (uri != null) {
+                  final handled = await _handleShareOrExternalUrl(uri);
+                  if (!handled) {
+                    await controller.loadUrl(urlRequest: createWindowAction.request);
                   }
-                },
-              );
-            },
-            onProgressChanged: (controller, progress) {
-              _onProgressChanged(progress);
-            },
-            onLoadStop: (controller, url) {
-              _dismissOverlay();
-            },
-            onReceivedError: (controller, request, error) {
-              _dismissOverlay();
-            },
-            onCreateWindow: (controller, createWindowAction) async {
-              final uri = createWindowAction.request.url;
-              if (uri != null) {
-                final handled = await _handleShareOrExternalUrl(uri);
-                if (!handled) {
-                  // Open new tab/window request directly inside the SAME WebView window!
-                  await controller.loadUrl(urlRequest: createWindowAction.request);
+                  return true;
                 }
-                return true;
-              }
-              return false;
-            },
-            shouldOverrideUrlLoading: (controller, navigationAction) async {
-              final uri = navigationAction.request.url;
-              if (uri != null) {
-                final handled = await _handleShareOrExternalUrl(uri);
-                if (handled) {
-                  return NavigationActionPolicy.CANCEL;
+                return false;
+              },
+              shouldOverrideUrlLoading: (controller, navigationAction) async {
+                final uri = navigationAction.request.url;
+                if (uri != null) {
+                  final handled = await _handleShareOrExternalUrl(uri);
+                  if (handled) {
+                    return NavigationActionPolicy.CANCEL;
+                  }
                 }
-              }
-              return NavigationActionPolicy.ALLOW;
-            },
-          ),
+                return NavigationActionPolicy.ALLOW;
+              },
+            ),
 
-          // Ultra-Modern Clear & Professional Loading Overlay
-          if (_showOverlay)
-            IgnorePointer(
-              ignoring: _overlayOpacity == 0.0,
-              child: AnimatedOpacity(
-                opacity: _overlayOpacity,
-                duration: const Duration(milliseconds: 400),
-                child: Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Color(0xFF0F172A), // Dark slate blue header accent
-                        Color(0xFF1E293B), // Deep sleek background
-                      ],
-                    ),
-                  ),
-                  width: double.infinity,
-                  height: double.infinity,
-                  child: Center(
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 28),
-                      padding: const EdgeInsets.all(32),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.15),
-                          width: 1.5,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
-                            blurRadius: 30,
-                            spreadRadius: 5,
-                            offset: const Offset(0, 10),
+            if (_showOverlay)
+              IgnorePointer(
+                ignoring: _overlayOpacity == 0.0,
+                child: AnimatedOpacity(
+                  opacity: _overlayOpacity,
+                  duration: const Duration(milliseconds: 400),
+                  child: Container(
+                    color: const Color(0xFF0F172A),
+                    width: double.infinity,
+                    height: double.infinity,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 40),
+                        margin: const EdgeInsets.symmetric(horizontal: 24),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.08),
+                            width: 1.5,
                           ),
-                        ],
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Glowing Pulsing App Icon Ring
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: LinearGradient(
-                                colors: [
-                                  const Color(0xFF0D6EFD).withOpacity(0.3),
-                                  const Color(0xFF0D6EFD).withOpacity(0.05),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.5),
+                              blurRadius: 35,
+                              offset: const Offset(0, 15),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  colors: [
+                                    const Color(0xFF0D6EFD).withOpacity(0.3),
+                                    const Color(0xFF0D6EFD).withOpacity(0.05),
+                                  ],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF0D6EFD).withOpacity(0.4),
+                                    blurRadius: 25,
+                                    spreadRadius: 2,
+                                  ),
                                 ],
                               ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF0D6EFD).withOpacity(0.4),
-                                  blurRadius: 25,
-                                  spreadRadius: 2,
+                              child: const Icon(
+                                Icons.language,
+                                size: 64,
+                                color: Color(0xFF38BDF8),
+                              ),
+                            ),
+                            const SizedBox(height: 32),
+                            Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                SizedBox(
+                                  width: 110,
+                                  height: 110,
+                                  child: CircularProgressIndicator(
+                                    value: _progress > 0 ? _progress : null,
+                                    strokeWidth: 6,
+                                    backgroundColor: Colors.white10,
+                                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF38BDF8)),
+                                  ),
+                                ),
+                                Text(
+                                  "${(_progress * 100).toInt()}%",
+                                  style: const TextStyle(
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1,
+                                    color: Colors.white,
+                                  ),
                                 ),
                               ],
                             ),
-                            child: const Icon(
-                              Icons.language,
-                              size: 64,
-                              color: Color(0xFF38BDF8),
-                            ),
-                          ),
-                          const SizedBox(height: 32),
-
-                          // Circular Progress & Percentage Counter Display
-                          Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              SizedBox(
-                                width: 110,
-                                height: 110,
-                                child: CircularProgressIndicator(
+                            const SizedBox(height: 28),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: SizedBox(
+                                width: 180,
+                                height: 4,
+                                child: LinearProgressIndicator(
                                   value: _progress > 0 ? _progress : null,
-                                  strokeWidth: 6,
                                   backgroundColor: Colors.white10,
-                                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF38BDF8)),
+                                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0D6EFD)),
                                 ),
                               ),
-                              Text(
-                                "${(_progress * 100).toInt()}%",
-                                style: const TextStyle(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 28),
-
-                          // Sleek Progress Line
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: SizedBox(
-                              width: 180,
-                              height: 4,
-                              child: LinearProgressIndicator(
-                                value: _progress > 0 ? _progress : null,
-                                backgroundColor: Colors.white10,
-                                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0D6EFD)),
+                            ),
+                            const SizedBox(height: 18),
+                            const Text(
+                              "Loading Rdmns App...",
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.5,
+                                color: Color(0xFF94A3B8),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 18),
-
-                          // Professional Loading Caption
-                          const Text(
-                            "Loading Rdmns App...",
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.5,
-                              color: Color(0xFF94A3B8),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
