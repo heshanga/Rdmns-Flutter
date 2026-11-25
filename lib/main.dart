@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:ui' as ui;
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'services/live_notification_service.dart';
@@ -11,6 +14,64 @@ import 'services/auto_update_service.dart';
 import 'services/device_id_service.dart';
 import 'services/app_config_service.dart';
 import 'services/dynamic_token_service.dart';
+
+// ---------------------------------------------------------------------------
+// The app only opens these four RDMNS pages (one tab each).
+// ---------------------------------------------------------------------------
+const String kRdmnsHost = 'rdmns.hesn.xyz';
+
+class RdmnsTab {
+  final String url;
+  final String path;
+  final IconData icon;
+  final IconData activeIcon;
+  const RdmnsTab(this.url, this.path, this.icon, this.activeIcon);
+}
+
+const List<RdmnsTab> kTabs = [
+  RdmnsTab('https://rdmns.hesn.xyz', '', Icons.home_outlined, Icons.home_rounded),
+  RdmnsTab('https://rdmns.hesn.xyz/v1map', '/v1map', Icons.map_outlined, Icons.map_rounded),
+  RdmnsTab('https://rdmns.hesn.xyz/v1radar', '/v1radar', Icons.track_changes, Icons.track_changes),
+  RdmnsTab('https://rdmns.hesn.xyz/v1timetable', '/v1timetable', Icons.schedule_outlined, Icons.schedule_rounded),
+];
+
+const Map<String, List<String>> kTabLabels = {
+  'en': ['Home', 'Map', 'Radar', 'Timetable'],
+  'si': ['මුල් පිටුව', 'සිතියම', 'රේඩාර්', 'කාලසටහන'],
+  'ta': ['முகப்பு', 'வரைபடம்', 'ரேடார்', 'அட்டவணை'],
+};
+
+const Map<String, List<String>> kNetLabels = {
+  'en': ['No internet connection', 'Back online'],
+  'si': ['අන්තර්ජාල සම්බන්ධතාවය නැත', 'නැවත සම්බන්ධ විය'],
+  'ta': ['இணைய இணைப்பு இல்லை', 'மீண்டும் இணைக்கப்பட்டது'],
+};
+
+/// Reports scrolling of any element (pages scroll inside their own containers)
+/// so the tab bar can hide while reading and come back on scroll-up.
+const String kNavScrollJs = r'''
+(function(){
+  if (window.__rdmnsNav) return; window.__rdmnsNav = 1;
+  var last = new WeakMap(), acc = 0;
+  document.addEventListener('scroll', function(e){
+    var t = e.target;
+    var el = (t === document || t === document.documentElement || t === document.body)
+             ? (document.scrollingElement || document.documentElement) : t;
+    if (!el || el.scrollHeight - el.clientHeight < 80) return;
+    var y = el.scrollTop, p = last.has(el) ? last.get(el) : y;
+    last.set(el, y);
+    var dy = y - p;
+    if ((dy > 0) !== (acc > 0)) acc = 0;
+    acc += dy;
+    if (Math.abs(acc) > 12 || y < 24) {
+      if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+        window.flutter_inappwebview.callHandler('NavScroll', Math.round(acc), Math.round(y));
+      }
+      acc = 0;
+    }
+  }, {capture: true, passive: true});
+})();
+''';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -52,7 +113,31 @@ class MainWebViewScreen extends StatefulWidget {
 
 class _MainWebViewScreenState extends State<MainWebViewScreen> {
   final LocalAuthentication auth = LocalAuthentication();
-  InAppWebViewController? webViewController;
+  InAppWebViewController? get webViewController => _controllers[_current];
+
+  // Tabs
+  int _current = 0;
+  final List<InAppWebViewController?> _controllers = List<InAppWebViewController?>.filled(kTabs.length, null);
+  final Set<int> _created = {0};
+  final List<double> _tabProgress = List<double>.filled(kTabs.length, 0);
+  final Set<int> _errored = {};
+
+  // Auto-hiding tab bar
+  bool _navShown = true;
+  bool _navCollapsed = false;
+  Timer? _navTimer;
+
+  // Connection banner
+  bool _offline = false;
+  bool _bannerVisible = false;
+  Timer? _netTimer;
+  Timer? _bannerTimer;
+  StreamSubscription<List<ConnectivityResult>>? _connSub;
+
+  String get _lang {
+    final code = ui.PlatformDispatcher.instance.locale.languageCode;
+    return kTabLabels.containsKey(code) ? code : 'en';
+  }
   double _progress = 0.0;
   bool _showOverlay = true;
   double _overlayOpacity = 1.0;
@@ -70,6 +155,11 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
   Future<bool> _handleBackPress() async {
     if (webViewController != null && await webViewController!.canGoBack()) {
       await webViewController!.goBack();
+      return false;
+    }
+
+    if (_current != 0) {
+      _selectTab(0);
       return false;
     }
 
@@ -97,6 +187,11 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _authenticateUser();
     });
+
+    Connectivity().checkConnectivity().then((r) {
+      if (_isOffline(r)) _setOffline(true);
+    }).catchError((_) {});
+    _connSub = Connectivity().onConnectivityChanged.listen(_onConnectivityChanged);
   }
 
   Future<void> _authenticateUser() async {
@@ -181,6 +276,10 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
   @override
   void dispose() {
     _fallbackTimer?.cancel();
+    _navTimer?.cancel();
+    _netTimer?.cancel();
+    _bannerTimer?.cancel();
+    _connSub?.cancel();
     super.dispose();
   }
 
@@ -244,8 +343,353 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
     return false;
   }
 
+  // ------------------------------------------------------------------ tabs
+
+  bool _isInternalHost(String host) {
+    final h = host.toLowerCase();
+    return h == kRdmnsHost || h == 'rdmns.lk' || h.endsWith('.rdmns.lk');
+  }
+
+  /// Index of the tab whose start page is exactly [uri], else null.
+  int? _tabForUrl(Uri uri) {
+    if (uri.host.toLowerCase() != kRdmnsHost || uri.query.isNotEmpty) return null;
+    var path = uri.path;
+    while (path.endsWith('/')) {
+      path = path.substring(0, path.length - 1);
+    }
+    for (var i = 0; i < kTabs.length; i++) {
+      if (kTabs[i].path == path) return i;
+    }
+    return null;
+  }
+
+  URLRequest _tabRequest(int i) => URLRequest(
+        url: WebUri(kTabs[i].url),
+        headers: DynamicTokenService.buildSecureHeaders(_deviceToken, secretKey: secretKey),
+      );
+
+  Future<void> _selectTab(int i) async {
+    HapticFeedback.selectionClick();
+    if (i == _current) {
+      // Tapping the open tab: back to its start page, or reload if already there.
+      final c = _controllers[i];
+      if (c == null) return;
+      final url = await c.getUrl();
+      if (url != null && _tabForUrl(url) == i) {
+        await c.reload();
+      } else {
+        await c.loadUrl(urlRequest: _tabRequest(i));
+      }
+      return;
+    }
+    setState(() {
+      _current = i;
+      _created.add(i);
+    });
+    _showNav();
+  }
+
+  Future<void> _openExternal(Uri uri) async {
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
+  }
+
+  /// Keeps navigation on the RDMNS site. A link to one of the four start pages
+  /// switches to that tab; any other website opens outside the app.
+  Future<NavigationActionPolicy> _routeUrl(int tab, Uri uri, bool mainFrame) async {
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme == 'http' || scheme == 'https') {
+      if (!mainFrame) return NavigationActionPolicy.ALLOW;
+      if (_isInternalHost(uri.host)) {
+        final t = _tabForUrl(uri);
+        if (t != null && t != tab) {
+          _selectTab(t);
+          return NavigationActionPolicy.CANCEL;
+        }
+        return NavigationActionPolicy.ALLOW;
+      }
+      await _openExternal(uri);
+      return NavigationActionPolicy.CANCEL;
+    }
+    if (const ['about', 'data', 'blob', 'javascript'].contains(scheme)) {
+      return NavigationActionPolicy.ALLOW;
+    }
+    await _openExternal(uri);
+    return NavigationActionPolicy.CANCEL;
+  }
+
+  // ------------------------------------------------------------------ tab bar
+
+  void _hideNav() {
+    if (!_navShown || !mounted) return;
+    _navTimer?.cancel();
+    setState(() => _navShown = false);
+    _navTimer = Timer(const Duration(milliseconds: 230), () {
+      if (mounted && !_navShown) setState(() => _navCollapsed = true);
+    });
+  }
+
+  void _showNav() {
+    if (_navShown || !mounted) return;
+    _navTimer?.cancel();
+    if (_navCollapsed) {
+      setState(() => _navCollapsed = false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _navShown = true);
+      });
+    } else {
+      setState(() => _navShown = true);
+    }
+  }
+
+  Widget _buildTabBar(bool dark) {
+    final accent = dark ? const Color(0xFFFF5A71) : const Color(0xFF9B1B31);
+    final inactive = dark ? const Color(0xFF8E8E96) : const Color(0xFF8A8A93);
+    final bg = dark ? const Color(0xFF121214) : const Color(0xFFF9F9FB);
+    final line = dark ? const Color(0x8C545458) : const Color(0x213C3C43);
+    final labels = kTabLabels[_lang]!;
+    return AnimatedSlide(
+      offset: _navShown ? Offset.zero : const Offset(0, 1),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      child: Container(
+        decoration: BoxDecoration(
+          color: bg,
+          border: Border(top: BorderSide(color: line, width: 0.5)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 56,
+            child: Row(
+              children: List.generate(kTabs.length, (i) {
+                final selected = i == _current;
+                final color = selected ? accent : inactive;
+                return Expanded(
+                  child: InkWell(
+                    onTap: () => _selectTab(i),
+                    splashColor: Colors.transparent,
+                    highlightColor: Colors.transparent,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(selected ? kTabs[i].activeIcon : kTabs[i].icon, color: color, size: 24),
+                        const SizedBox(height: 3),
+                        Text(
+                          labels[i],
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                            color: color,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------ connection
+
+  bool _isOffline(List<ConnectivityResult> r) =>
+      r.isEmpty || r.every((e) => e == ConnectivityResult.none);
+
+  void _onConnectivityChanged(List<ConnectivityResult> r) {
+    final off = _isOffline(r);
+    _netTimer?.cancel();
+    // Small wait so a Wi-Fi -> mobile data hand-over doesn't flash the banner.
+    _netTimer = Timer(Duration(milliseconds: off ? 1200 : 300), () => _setOffline(off));
+  }
+
+  void _setOffline(bool off) {
+    if (!mounted || off == _offline) return;
+    _bannerTimer?.cancel();
+    setState(() {
+      _offline = off;
+      _bannerVisible = true;
+    });
+    if (off) {
+      HapticFeedback.heavyImpact();
+    } else {
+      _bannerTimer = Timer(const Duration(milliseconds: 2500), () {
+        if (mounted && !_offline) setState(() => _bannerVisible = false);
+      });
+      for (final i in _errored.toList()) {
+        _controllers[i]?.reload();
+      }
+    }
+  }
+
+  Widget _buildNetBanner() {
+    final text = kNetLabels[_lang]![_offline ? 0 : 1];
+    return IgnorePointer(
+      child: Center(
+        child: AnimatedSlide(
+          offset: _bannerVisible ? Offset.zero : const Offset(0, -2),
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          child: AnimatedOpacity(
+            opacity: _bannerVisible ? 1 : 0,
+            duration: const Duration(milliseconds: 250),
+            child: Container(
+              height: 36,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: _offline ? const Color(0xFFD93A3A) : const Color(0xFF1F8A43),
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 12, offset: Offset(0, 4))],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(_offline ? Icons.cloud_off_rounded : Icons.check_rounded, color: Colors.white, size: 16),
+                  const SizedBox(width: 7),
+                  Text(
+                    text,
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------ web views
+
+  Widget _buildWebView(int i, List<UserScript> scripts) {
+    return InAppWebView(
+      key: ValueKey('rdmns_tab_$i'),
+      initialUrlRequest: _tabRequest(i),
+      initialUserScripts: UnmodifiableListView(scripts),
+      initialSettings: InAppWebViewSettings(
+        javaScriptEnabled: true,
+        domStorageEnabled: true,
+        databaseEnabled: true,
+        useWideViewPort: true,
+        loadWithOverviewMode: true,
+        supportZoom: true,
+        builtInZoomControls: true,
+        displayZoomControls: false,
+        useShouldOverrideUrlLoading: true,
+        mediaPlaybackRequiresUserGesture: false,
+        allowFileAccessFromFileURLs: true,
+        allowUniversalAccessFromFileURLs: true,
+        javaScriptCanOpenWindowsAutomatically: true,
+        supportMultipleWindows: true,
+        mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+        hardwareAcceleration: true,
+        offscreenPreRaster: true,
+        cacheEnabled: true,
+        clearCache: false,
+        verticalScrollBarEnabled: false,
+        horizontalScrollBarEnabled: false,
+        preferredContentMode: UserPreferredContentMode.MOBILE,
+        disallowOverScroll: true,
+        useHybridComposition: false,
+        allowsBackForwardNavigationGestures: true,
+        allowsInlineMediaPlayback: true,
+        geolocationEnabled: true,
+        userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.1 DeviceToken/$_deviceToken",
+      ),
+      onWebViewCreated: (controller) {
+        _controllers[i] = controller;
+
+        controller.addJavaScriptHandler(
+          handlerName: 'NativeShare',
+          callback: (args) {
+            if (args.isNotEmpty) {
+              final text = args[0].toString();
+              final url = args.length > 1 ? args[1].toString() : '';
+              final subject = args.length > 2 ? args[2].toString() : '';
+
+              final shareText = text.isNotEmpty ? text : url;
+              if (shareText.isNotEmpty) {
+                Share.share(shareText, subject: subject.isNotEmpty ? subject : null);
+              }
+            }
+          },
+        );
+
+        controller.addJavaScriptHandler(
+          handlerName: 'NavScroll',
+          callback: (args) {
+            if (i != _current || args.length < 2) return null;
+            final dy = (args[0] as num).toDouble();
+            final y = (args[1] as num).toDouble();
+            if (y < 24 || dy < 0) {
+              _showNav();
+            } else {
+              _hideNav();
+            }
+            return null;
+          },
+        );
+      },
+      onProgressChanged: (controller, progress) {
+        if (i == 0) _onProgressChanged(progress);
+        if (mounted) setState(() => _tabProgress[i] = progress / 100.0);
+      },
+      onLoadStart: (controller, url) {
+        _errored.remove(i);
+        if (i == _current) _showNav();
+      },
+      onLoadStop: (controller, url) {
+        if (i == 0) _dismissOverlay();
+      },
+      onReceivedError: (controller, request, error) {
+        if (request.isForMainFrame ?? true) _errored.add(i);
+        if (i == 0) _dismissOverlay();
+      },
+      onGeolocationPermissionsShowPrompt: (controller, origin) async {
+        final status = await Permission.locationWhenInUse.request();
+        final ok = status.isGranted || status.isLimited;
+        return GeolocationPermissionShowPromptResponse(origin: origin, allow: ok, retain: ok);
+      },
+      onCreateWindow: (controller, createWindowAction) async {
+        final uri = createWindowAction.request.url;
+        if (uri != null) {
+          final handled = await _handleShareOrExternalUrl(uri);
+          if (!handled) {
+            final policy = await _routeUrl(i, uri, true);
+            if (policy == NavigationActionPolicy.ALLOW) {
+              await controller.loadUrl(urlRequest: createWindowAction.request);
+            }
+          }
+          return true;
+        }
+        return false;
+      },
+      shouldOverrideUrlLoading: (controller, navigationAction) async {
+        final uri = navigationAction.request.url;
+        if (uri == null) return NavigationActionPolicy.ALLOW;
+        final handled = await _handleShareOrExternalUrl(uri);
+        if (handled) {
+          return NavigationActionPolicy.CANCEL;
+        }
+        return _routeUrl(i, uri, navigationAction.isForMainFrame);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final UserScript navScrollScript = UserScript(
+      source: kNavScrollJs,
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
+    );
+
     final UserScript sharePolyfillScript = UserScript(
       source: """
         (function() {
@@ -408,8 +852,10 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       );
     }
 
-    final String secureUrl = DynamicTokenService.buildSecureUrl(targetUrl, _deviceToken, secretKey: secretKey);
-    final Map<String, String> secureHeaders = DynamicTokenService.buildSecureHeaders(_deviceToken, secretKey: secretKey);
+    final bool dark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+    final bool keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final double tabProgress = _tabProgress[_current];
+    final List<UserScript> scripts = [sharePolyfillScript, gpuAcceleratePolyfillScript, timeInputCrashFixScript, navScrollScript];
 
     return PopScope(
       canPop: false,
@@ -421,93 +867,50 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
         }
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: dark ? Colors.black : const Color(0xFFF2F2F7),
         body: Stack(
           children: [
-            InAppWebView(
-              initialUrlRequest: URLRequest(
-                url: WebUri(secureUrl),
-                headers: secureHeaders,
-              ),
-              initialUserScripts: UnmodifiableListView([sharePolyfillScript, gpuAcceleratePolyfillScript, timeInputCrashFixScript]),
-              initialSettings: InAppWebViewSettings(
-                javaScriptEnabled: true,
-                domStorageEnabled: true,
-                databaseEnabled: true,
-                useWideViewPort: true,
-                loadWithOverviewMode: true,
-                supportZoom: true,
-                builtInZoomControls: true,
-                displayZoomControls: false,
-                useShouldOverrideUrlLoading: true,
-                mediaPlaybackRequiresUserGesture: false,
-                allowFileAccessFromFileURLs: true,
-                allowUniversalAccessFromFileURLs: true,
-                javaScriptCanOpenWindowsAutomatically: true,
-                supportMultipleWindows: true,
-                mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
-                hardwareAcceleration: true,
-                offscreenPreRaster: true,
-                cacheEnabled: true,
-                clearCache: false,
-                verticalScrollBarEnabled: false,
-                horizontalScrollBarEnabled: false,
-                preferredContentMode: UserPreferredContentMode.MOBILE,
-                disallowOverScroll: true,
-                useHybridComposition: false,
-                allowsBackForwardNavigationGestures: true,
-                allowsInlineMediaPlayback: true,
-                userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.1 DeviceToken/$_deviceToken",
-              ),
-              onWebViewCreated: (controller) {
-                webViewController = controller;
+            Column(
+              children: [
+                Expanded(
+                  child: Stack(
+                    children: [
+                      // One web view per tab, kept alive so switching tabs doesn't reload.
+                      Positioned.fill(
+                        child: IndexedStack(
+                          index: _current,
+                          children: List.generate(
+                            kTabs.length,
+                            (i) => _created.contains(i) ? _buildWebView(i, scripts) : const SizedBox.shrink(),
+                          ),
+                        ),
+                      ),
+                      if (!_showOverlay && tabProgress > 0 && tabProgress < 1)
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: LinearProgressIndicator(
+                            value: tabProgress,
+                            minHeight: 2,
+                            backgroundColor: Colors.transparent,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              dark ? const Color(0xFFFF5A71) : const Color(0xFF9B1B31),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (!_navCollapsed && !keyboardOpen) _buildTabBar(dark),
+              ],
+            ),
 
-                controller.addJavaScriptHandler(
-                  handlerName: 'NativeShare',
-                  callback: (args) {
-                    if (args.isNotEmpty) {
-                      final text = args[0].toString();
-                      final url = args.length > 1 ? args[1].toString() : '';
-                      final subject = args.length > 2 ? args[2].toString() : '';
-
-                      final shareText = text.isNotEmpty ? text : url;
-                      if (shareText.isNotEmpty) {
-                        Share.share(shareText, subject: subject.isNotEmpty ? subject : null);
-                      }
-                    }
-                  },
-                );
-              },
-              onProgressChanged: (controller, progress) {
-                _onProgressChanged(progress);
-              },
-              onLoadStop: (controller, url) {
-                _dismissOverlay();
-              },
-              onReceivedError: (controller, request, error) {
-                _dismissOverlay();
-              },
-              onCreateWindow: (controller, createWindowAction) async {
-                final uri = createWindowAction.request.url;
-                if (uri != null) {
-                  final handled = await _handleShareOrExternalUrl(uri);
-                  if (!handled) {
-                    await controller.loadUrl(urlRequest: createWindowAction.request);
-                  }
-                  return true;
-                }
-                return false;
-              },
-              shouldOverrideUrlLoading: (controller, navigationAction) async {
-                final uri = navigationAction.request.url;
-                if (uri != null) {
-                  final handled = await _handleShareOrExternalUrl(uri);
-                  if (handled) {
-                    return NavigationActionPolicy.CANCEL;
-                  }
-                }
-                return NavigationActionPolicy.ALLOW;
-              },
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 10,
+              left: 0,
+              right: 0,
+              child: _buildNetBanner(),
             ),
 
             if (_showOverlay)

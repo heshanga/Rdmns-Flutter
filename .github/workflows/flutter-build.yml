@@ -101,6 +101,8 @@ jobs:
               content = f.read()
           if 'NSFaceIDUsageDescription' not in content:
               content = content.replace('<dict>', '<dict>\n\t<key>NSFaceIDUsageDescription</key>\n\t<string>We use Face ID / Touch ID to secure access to the Rdmns app.</string>')
+          if 'NSLocationWhenInUseUsageDescription' not in content:
+              content = content.replace('<dict>', '<dict>\n\t<key>NSLocationWhenInUseUsageDescription</key>\n\t<string>Your location is used only when you choose to share live train GPS.</string>', 1)
               with open(path, 'w') as f:
                   f.write(content)
           "
