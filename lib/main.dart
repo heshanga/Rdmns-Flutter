@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:io' show Platform;
 import 'dart:ui' as ui;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
@@ -382,10 +383,16 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       }
       return;
     }
+    final previous = _current;
     setState(() {
       _current = i;
       _created.add(i);
     });
+    if (Platform.isAndroid) {
+      // Hidden tabs stop drawing so the visible one gets the full GPU/CPU.
+      _controllers[previous]?.pause().catchError((_) {});
+      _controllers[i]?.resume().catchError((_) {});
+    }
     _showNav();
   }
 
@@ -590,18 +597,18 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
         supportMultipleWindows: true,
         mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
         hardwareAcceleration: true,
-        offscreenPreRaster: true,
+        offscreenPreRaster: false,
         cacheEnabled: true,
         clearCache: false,
         verticalScrollBarEnabled: false,
         horizontalScrollBarEnabled: false,
         preferredContentMode: UserPreferredContentMode.MOBILE,
         disallowOverScroll: true,
-        useHybridComposition: false,
+        useHybridComposition: true,
         allowsBackForwardNavigationGestures: true,
         allowsInlineMediaPlayback: true,
         geolocationEnabled: true,
-        userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.2 DeviceToken/$_deviceToken",
+        userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.3 DeviceToken/$_deviceToken",
       ),
       onWebViewCreated: (controller) {
         _controllers[i] = controller;
@@ -639,7 +646,8 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       },
       onProgressChanged: (controller, progress) {
         if (i == 0) _onProgressChanged(progress);
-        if (mounted) setState(() => _tabProgress[i] = progress / 100.0);
+        _tabProgress[i] = progress / 100.0;
+        if (i == _current && mounted) setState(() {});
       },
       onLoadStart: (controller, url) {
         _errored.remove(i);
@@ -737,18 +745,8 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
               style.id = 'smooth-gpu-css';
               style.type = 'text/css';
               style.innerHTML = `
-                html, body {
-                  -webkit-overflow-scrolling: touch !important;
-                  scroll-behavior: smooth !important;
-                }
                 * {
                   -webkit-tap-highlight-color: transparent !important;
-                }
-                .modal, .dialog, .popup, .dropdown, .drawer, .sidebar, .menu, [role="dialog"], [role="menu"], div, section, article {
-                  -webkit-backface-visibility: hidden !important;
-                  backface-visibility: hidden !important;
-                  -webkit-transform-style: preserve-3d !important;
-                  transform-style: preserve-3d !important;
                 }
               `;
               document.head.appendChild(style);
@@ -782,7 +780,12 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
           } else {
             fixInputs();
           }
-          var observer = new MutationObserver(fixInputs);
+          var pending = false;
+          var observer = new MutationObserver(function() {
+            if (pending) return;
+            pending = true;
+            setTimeout(function() { pending = false; fixInputs(); }, 400);
+          });
           observer.observe(document.documentElement, { childList: true, subtree: true });
         })();
       """,
