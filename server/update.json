@@ -1,7 +1,7 @@
 {
-  "versionCode": 24,
-  "versionName": "1.2.4",
-  "apkUrl": "https://github.com/heshanga/Rdmns-Flutter/releases/download/v1.2.4/app-release.apk",
-  "releaseNotes": "Rdmns v1.2.4: Screen-reading apps can no longer read the app. TalkBack still works.",
+  "versionCode": 25,
+  "versionName": "1.2.5",
+  "apkUrl": "https://github.com/heshanga/Rdmns-Flutter/releases/download/v1.2.5/app-release.apk",
+  "releaseNotes": "Rdmns v1.2.5: New AI assistant tab – ask about trains by typing or speaking in Sinhala or English.",
   "forceUpdate": true
 }

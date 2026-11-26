@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:ui' as ui;
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -15,9 +16,10 @@ import 'services/auto_update_service.dart';
 import 'services/device_id_service.dart';
 import 'services/app_config_service.dart';
 import 'services/dynamic_token_service.dart';
+import 'ai/rdmns_voice_bridge.dart';
 
 // ---------------------------------------------------------------------------
-// The app only opens these four RDMNS pages (one tab each).
+// The app only opens these RDMNS pages (one tab each).
 // ---------------------------------------------------------------------------
 const String kRdmnsHost = 'rdmns.hesn.xyz';
 
@@ -34,12 +36,17 @@ const List<RdmnsTab> kTabs = [
   RdmnsTab('https://rdmns.hesn.xyz/v1map', '/v1map', Icons.map_outlined, Icons.map_rounded),
   RdmnsTab('https://rdmns.hesn.xyz/v1radar', '/v1radar', Icons.track_changes, Icons.track_changes),
   RdmnsTab('https://rdmns.hesn.xyz/v1timetable', '/v1timetable', Icons.schedule_outlined, Icons.schedule_rounded),
+  RdmnsTab('https://rdmns.hesn.xyz/ai/public/', '/ai/public', Icons.auto_awesome_outlined, Icons.auto_awesome),
 ];
 
+const int kMapTab = 1;
+const int kTimetableTab = 3;
+const int kAiTab = 4;
+
 const Map<String, List<String>> kTabLabels = {
-  'en': ['Home', 'Map', 'Radar', 'Timetable'],
-  'si': ['මුල් පිටුව', 'සිතියම', 'රේඩාර්', 'කාලසටහන'],
-  'ta': ['முகப்பு', 'வரைபடம்', 'ரேடார்', 'அட்டவணை'],
+  'en': ['Home', 'Map', 'Radar', 'Timetable', 'AI'],
+  'si': ['මුල් පිටුව', 'සිතියම', 'රේඩාර්', 'කාලසටහන', 'AI සහායක'],
+  'ta': ['முகப்பு', 'வரைபடம்', 'ரேடார்', 'அட்டவணை', 'AI உதவியாளர்'],
 };
 
 const Map<String, List<String>> kNetLabels = {
@@ -112,9 +119,14 @@ class MainWebViewScreen extends StatefulWidget {
   State<MainWebViewScreen> createState() => _MainWebViewScreenState();
 }
 
-class _MainWebViewScreenState extends State<MainWebViewScreen> {
+class _MainWebViewScreenState extends State<MainWebViewScreen> with WidgetsBindingObserver {
   final LocalAuthentication auth = LocalAuthentication();
   InAppWebViewController? get webViewController => _controllers[_current];
+
+  // AI tab: native voice bridge + pending deep links into other tabs
+  late final RdmnsVoiceBridge _aiVoice = RdmnsVoiceBridge(onMicBlocked: _micBlocked);
+  bool? _aiDarkSynced;
+  final Map<int, Uri> _pendingUrls = {};
 
   // Tabs
   int _current = 0;
@@ -185,6 +197,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _authenticateUser();
     });
@@ -281,7 +294,14 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
     _netTimer?.cancel();
     _bannerTimer?.cancel();
     _connSub?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _aiVoice.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) _aiVoice.stopAll();
   }
 
   void _dismissOverlay() {
@@ -364,10 +384,91 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
     return null;
   }
 
-  URLRequest _tabRequest(int i) => URLRequest(
-        url: WebUri(kTabs[i].url),
-        headers: DynamicTokenService.buildSecureHeaders(_deviceToken, secretKey: secretKey),
-      );
+  Map<String, String> _headersFor(int i) {
+    final h = Map<String, String>.from(DynamicTokenService.buildSecureHeaders(_deviceToken, secretKey: secretKey));
+    if (i == kAiTab && _deviceToken.isNotEmpty) h['X-User-Id'] = _deviceToken; // AI rate-limit fairness
+    return h;
+  }
+
+  URLRequest _tabRequest(int i) => URLRequest(url: WebUri(kTabs[i].url), headers: _headersFor(i));
+
+  /// First request of a tab: a pending deep link (e.g. /v1map/8050 from the AI tab) or its start page.
+  URLRequest _initialRequest(int i) {
+    final pending = _pendingUrls.remove(i);
+    if (pending == null) return _tabRequest(i);
+    return URLRequest(url: WebUri(pending.toString()), headers: _headersFor(i));
+  }
+
+  /// Opens [uri] in tab [t] (used by the AI tab's "Full map" / "Full timetable").
+  Future<void> _openInTab(int t, Uri uri) async {
+    final c = _controllers[t];
+    if (c == null) _pendingUrls[t] = uri;
+    if (t != _current) await _selectTab(t);
+    if (c != null) {
+      await c.loadUrl(urlRequest: URLRequest(url: WebUri(uri.toString()), headers: _headersFor(t)));
+    }
+  }
+
+  // ------------------------------------------------------------------ AI tab helpers
+
+  String _aiLang() => _lang == 'si' ? 'si' : 'en';
+
+  String _aiThemeJs(bool dark) {
+    final th = jsonEncode(dark ? 'dark' : 'light');
+    final lg = jsonEncode(_aiLang());
+    return "try{localStorage.setItem('rdmns-ai-theme',$th);"
+        "if(!localStorage.getItem('rdmns-ai-lang'))localStorage.setItem('rdmns-ai-lang',$lg);}catch(e){}"
+        "if(document.documentElement)document.documentElement.dataset.theme=$th;";
+  }
+
+  void _syncAiTheme() {
+    if (!mounted) return;
+    final dark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+    _aiDarkSynced = dark;
+    _controllers[kAiTab]?.evaluateJavascript(source: _aiThemeJs(dark)).catchError((_) => null);
+  }
+
+  void _micBlocked() {
+    if (!mounted) return;
+    final si = _lang == 'si';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(si ? 'Voice සඳහා මයික්‍රොෆෝනයට අවසර දෙන්න' : 'Allow the microphone to use voice'),
+      action: SnackBarAction(label: si ? 'සැකසුම්' : 'Settings', onPressed: () => openAppSettings()),
+    ));
+  }
+
+  Widget _buildAiError(bool dark) {
+    final si = _lang == 'si';
+    final bg = dark ? Colors.black : const Color(0xFFF2F2F7);
+    return Positioned.fill(
+      child: ColoredBox(
+        color: bg,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.wifi_off_rounded, size: 44, color: dark ? Colors.white54 : Colors.black45),
+              const SizedBox(height: 12),
+              Text(
+                si ? 'සම්බන්ධතාවය නැත. අන්තර්ජාලය බලා නැවත උත්සාහ කරන්න.' : 'No connection. Check the internet and try again.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, color: dark ? Colors.white70 : Colors.black87),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: dark ? const Color(0xFFFF5A71) : const Color(0xFF9B1B31)),
+                onPressed: () {
+                  setState(() => _errored.remove(kAiTab));
+                  _controllers[kAiTab]?.reload();
+                },
+                child: Text(si ? 'නැවත උත්සාහ කරන්න' : 'Retry'),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _selectTab(int i) async {
     HapticFeedback.selectionClick();
@@ -377,13 +478,14 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       if (c == null) return;
       final url = await c.getUrl();
       if (url != null && _tabForUrl(url) == i) {
-        await c.reload();
+        if (i != kAiTab) await c.reload(); // never wipe the AI chat
       } else {
         await c.loadUrl(urlRequest: _tabRequest(i));
       }
       return;
     }
     final previous = _current;
+    if (previous == kAiTab) _aiVoice.stopAll();
     setState(() {
       _current = i;
       _created.add(i);
@@ -408,6 +510,25 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
     final scheme = uri.scheme.toLowerCase();
     if (scheme == 'http' || scheme == 'https') {
       if (!mainFrame) return NavigationActionPolicy.ALLOW;
+      if (tab == kAiTab && _isInternalHost(uri.host)) {
+        final seg = uri.pathSegments.where((x) => x.isNotEmpty).toList();
+        // /ai/... pages stay inside the AI tab
+        if (seg.isNotEmpty && seg.first == 'ai') return NavigationActionPolicy.ALLOW;
+        // "Full map" → the app's Map tab for that train: /v1map/{id}
+        if (seg.isNotEmpty && seg.first == 'v1map') {
+          _openInTab(kMapTab, uri);
+          return NavigationActionPolicy.CANCEL;
+        }
+        // "Full timetable" → the Timetable tab: /v1timetable/{lang}/{from}/{to}
+        if (seg.isNotEmpty && seg.first == 'v1timetable') {
+          _openInTab(kTimetableTab, uri);
+          return NavigationActionPolicy.CANCEL;
+        }
+        // any other RDMNS page → its tab, or the Home tab
+        final t = _tabForUrl(uri);
+        _openInTab(t ?? 0, uri);
+        return NavigationActionPolicy.CANCEL;
+      }
       if (_isInternalHost(uri.host)) {
         final t = _tabForUrl(uri);
         if (t != null && t != tab) {
@@ -578,8 +699,17 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
   Widget _buildWebView(int i, List<UserScript> scripts) {
     return InAppWebView(
       key: ValueKey('rdmns_tab_$i'),
-      initialUrlRequest: _tabRequest(i),
-      initialUserScripts: UnmodifiableListView(scripts),
+      initialUrlRequest: _initialRequest(i),
+      initialUserScripts: UnmodifiableListView(i == kAiTab
+          ? [
+              ...scripts,
+              UserScript(source: RdmnsVoiceBridge.channelShim, injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START),
+              UserScript(
+                source: _aiThemeJs(MediaQuery.platformBrightnessOf(context) == Brightness.dark),
+                injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+              ),
+            ]
+          : scripts),
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
         domStorageEnabled: true,
@@ -598,6 +728,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
         mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
         hardwareAcceleration: true,
         offscreenPreRaster: false,
+        transparentBackground: i == kAiTab, // no white flash: the themed scaffold shows through
         cacheEnabled: true,
         clearCache: false,
         verticalScrollBarEnabled: false,
@@ -608,10 +739,11 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
         allowsBackForwardNavigationGestures: true,
         allowsInlineMediaPlayback: true,
         geolocationEnabled: true,
-        userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.4 DeviceToken/$_deviceToken",
+        userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36 RdmnsFlutter/1.2.5 DeviceToken/$_deviceToken",
       ),
       onWebViewCreated: (controller) {
         _controllers[i] = controller;
+        if (i == kAiTab) _aiVoice.attach(controller);
 
         controller.addJavaScriptHandler(
           handlerName: 'NativeShare',
@@ -651,15 +783,28 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
       },
       onLoadStart: (controller, url) {
         _errored.remove(i);
+        if (i == kAiTab && mounted) setState(() {});
         if (i == _current) _showNav();
       },
       onLoadStop: (controller, url) {
         if (i == 0) _dismissOverlay();
+        if (i == kAiTab) {
+          _syncAiTheme();
+          _aiVoice.announce();
+        }
       },
       onReceivedError: (controller, request, error) {
-        if (request.isForMainFrame ?? true) _errored.add(i);
+        if (request.isForMainFrame ?? true) {
+          _errored.add(i);
+          if (i == kAiTab && mounted) setState(() {});
+        }
         if (i == 0) _dismissOverlay();
       },
+      onPermissionRequest: (controller, request) async => PermissionResponse(
+        resources: request.resources,
+        // AI tab: the page's own (browser) speech recognition may ask for the mic
+        action: i == kAiTab ? PermissionResponseAction.GRANT : PermissionResponseAction.DENY,
+      ),
       onGeolocationPermissionsShowPrompt: (controller, origin) async {
         final status = await Permission.locationWhenInUse.request();
         final ok = status.isGranted || status.isLimited;
@@ -857,6 +1002,9 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
 
     final bool dark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
     final bool keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    if (_aiDarkSynced != null && _aiDarkSynced != dark) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _syncAiTheme());
+    }
     final double tabProgress = _tabProgress[_current];
     final List<UserScript> scripts = [sharePolyfillScript, gpuAcceleratePolyfillScript, timeInputCrashFixScript, navScrollScript];
 
@@ -888,6 +1036,7 @@ class _MainWebViewScreenState extends State<MainWebViewScreen> {
                           ),
                         ),
                       ),
+                      if (_current == kAiTab && _errored.contains(kAiTab)) _buildAiError(dark),
                       if (!_showOverlay && tabProgress > 0 && tabProgress < 1)
                         Positioned(
                           top: 0,
